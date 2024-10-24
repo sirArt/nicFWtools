@@ -26,7 +26,7 @@ Basic tool for nicFW settings manipulation:
       >>> serial device to use, default /dev/ttyUSB0
 
 --channel / -c
-      >>> channel number for wchich the action will be taken
+      >>> channel number for which the action will be taken
 
 --debug
       >>> enable verbose/debug output
@@ -79,7 +79,7 @@ CHANNEL MODIFIERS:
 REMOTE CONTROL:
 
   --reset / -r
-        >>> reset radio, should be used after channel modiffication
+        >>> reset radio, should be used after channel modification
 
   --flashlight-on  / -f1
   --flashlight-off / -f0
@@ -139,7 +139,7 @@ modulation : Auto
 
 ### update only channel name, and restart radio
 Update can be done only on existing channel, at least one channel settings must be specified.
-If more than one channel will be modiffied, -r can be run with last one.
+If more than one channel will be modified, -r can be run with last one.
 
 ```
 ./nicFWutil.py -c 30 -u -n "Test Channel" -r
