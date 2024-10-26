@@ -101,6 +101,20 @@ REMOTE CONTROL:
         ptt2/f1     - f1 ptt2 button
         f2          - f2 flashlight button
 
+READ EEPROM:
+
+  --show-eeprom / -se
+        >>> print EEPROM content
+
+  --show-bandplan / -sb
+        >>> print Band Plan
+
+  --show-scan-presets / -ssp
+        >>> print Scan Presets
+
+  --show-fmtuner / -sf
+        >>> print FM tuner channels
+
 ```
 
 ## Usage examples
@@ -122,6 +136,8 @@ modulation : FM
 ```
 
 ### create new channel with default configuration
+
+You can use any channel modifiers to replace some/all of default channel values.
 
 ```
 ./nicFWutil.py -c 30 -w
@@ -181,7 +197,8 @@ Done.
 
 - on import all channels that are not defined in CSV file will be removed form radio
 - if there are any extra commas in the file, apart from the ones separating the fields, you will encounter an import error (no channels will be sent or changed on the radio)
-
+- on import first line is always skipped (there should be file header with columns description)
+  
 ### exporting full channel list from radio to CSV file
 
 ```
@@ -297,6 +314,100 @@ done.
 ```
 ./nicFWutil.py -k star,144.950,blue
 done.
+```
+
+### reading EEPROM
+
+## read EEPROM content
+
+```
+./nicFWutil.py -se
+000 0x00 | 15 cd 5b 07 15 cd 5b 07 00 00 00 00 01 01 00 00 ff ff ff ff 50 4d 52 2d 30 31 00 00 00 00 00 00
+001 0x01 | 18 2d dd 00 18 2d dd 00 00 00 00 00 00 00 00 00 ff ff ff ff 43 48 2d 30 31 37 00 00 00 00 00 00
+002 0x02 | 31 8d a8 02 31 8d a8 02 00 00 00 00 7f 01 00 fb ff ff ff ff 50 4d 52 2d 30 31 00 00 00 00 00 00
+003 0x03 | 13 92 a8 02 13 92 a8 02 00 00 00 00 7f 01 00 fb ff ff ff ff 50 4d 52 2d 30 32 00 00 00 00 00 00
+004 0x04 | f5 96 a8 02 f5 96 a8 02 00 00 00 00 7f 01 00 fb ff ff ff ff 50 4d 52 2d 30 33 00 00 00 00 00 00
+
+[...]
+
+252 0xfc | 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28
+253 0xfd | 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28
+254 0xfe | 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28
+255 0xff | 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28 28
+```
+
+## read Band Plan
+
+```
+./nicFWutil.py -sb
+Band Plan
+Start Frequency End frequency Max Power Modulation   Bandwidth      Tx Allowed Wrap     
+       14400000      14600001         0 FM           Wide           Yes        Yes      
+       43000000      44000001         0 FM           Wide           Yes        Yes      
+       10800000      13800000         0 AM           Narrow         Yes        No       
+       66000001      84000000         0 Enforce_None Ignore         No         No       
+       44600625      44619376        25 Enforce_FM   Wide           Yes        Yes      
+       46255000      46272501         0 Enforce_FM   Wide           No         Yes      
+       46755000      46772501         0 Enforce_FM   Wide           No         Yes      
+              0             0         0 Ignore       Ignore         No         No       
+              0             0         0 Ignore       Ignore         No         No       
+              0             0         0 Ignore       Ignore         No         No       
+              0             0         0 Ignore       Ignore         No         No       
+              0             0         0 Ignore       Ignore         No         No       
+              0             0         0 Ignore       Ignore         No         No       
+              0             0         0 Ignore       Ignore         No         No       
+              0             0         0 Ignore       Ignore         No         No       
+              0             0         1 Ignore       Wide           No         No       
+              0             0         0 Ignore       Ignore         No         No       
+              0             0       253 Ignore       Enforce_Narrow No         Yes      
+              0             0       254 Ignore       Ignore         Yes        No       
+        1800000     130000000       255 Ignore       Ignore         No         No
+```
+
+## read Scan Presets
+
+```
+./nicFWutil.py -ssp
+Scan Presets
+Start Frequency End Frequency Squelch Squelch Tail Step  Scan Hold Scan Tail Update Modulation
+       10000000      20000000       1            0  1250       200       100     25 USB       
+              0        125000       2            3  1250         0       100     23 FM        
+              0        125000       2            3  1250         0       100     23 FM        
+              0        125000       2            3  1250         0       100     23 FM        
+              0        125000       2            3  1250         0       100     23 FM        
+              0        125000       2            3  1250         0       100     23 FM        
+              0        125000       2            3  1250         0       100     23 FM        
+              0        125000       2            3  1250         0       100     23 FM        
+              0        125000       2            3  1250         0       100     23 FM        
+       10000000      10001250       2            3  1250       200       100     25 USB 
+```
+
+## read FM tuner channels
+
+```
+./nicFWutil.py -sf
+FM Tuner settings
+Frequency Band   
+        0 Low_VHF
+   100000 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 West   
+        0 Japan  
+        0 World  
+    70000 Low_VHF
 ```
 
 # TODO
