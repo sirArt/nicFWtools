@@ -3,6 +3,8 @@ import serial
 import sys
 import argparse
 from time import sleep
+import struct
+import re
 
 DEFAULT_DEVICE = "/dev/ttyUSB0"
 DEFAULT_SERIAL_TIMEOUT = 1
@@ -11,8 +13,8 @@ DEFAULT_KEY_PUSH_TIME = 0.33        # time to sleep after each key send/release 
 # nicFW commands
 CMD_START_REMOTE_SESSION    = b'\x4A' # w/  Ack
 CMD_END_REMOTE_SESSION      = b'\x4B' # w/  Ack
-CMD_READ_CHANNEL            = b'\x30' # w/  Ack
-CMD_WRITE_CHANNEL           = b'\x31' # w/  Ack
+CMD_READ_EEPROM             = b'\x30' # w/  Ack
+CMD_WRITE_EEPROM            = b'\x31' # w/  Ack
 CMD_READ_BATTERY_ADC        = b'\x32' # w/  Ack
 CMD_DISABLE_RADIO           = b'\x45' # w/  Ack
 CMD_ENABLE_RADIO            = b'\x46' # w/  Ack
@@ -34,6 +36,12 @@ channel = {
     "bandwidth" : "",
     "is_empty" : True
 }
+
+bandplan_mod = [ 'Ignore', 'FM', 'AM', 'USB', 'Enforce_FM', 'Enforce_AM', 'Enforce_USB', 'Enforce_None' ]
+bandplan_bw = [ 'Ignore', 'Wide', 'Narrow', 'Enforce_Wide', 'Enforce_Narrow' ]
+NoYes = [ 'No', 'Yes' ]
+fm_band = [ 'West', 'Japan', 'World', 'Low_VHF' ]
+sp_mod = ['FM', 'AM', 'USB' ]
 
 # args
 parser = argparse.ArgumentParser()
@@ -58,6 +66,11 @@ parser.add_argument("-k", "--key", help="send KEY(s) sequence to radio")
 parser.add_argument("-e", "--export-csv", help="export channels to CSV file")
 parser.add_argument("-f", "--fixed-width", action='store_true', help="use fixed width data when exporting CSV")
 parser.add_argument("-i", "--import-csv", help="import channels from CSV file")
+parser.add_argument("-se", "--show-eeprom", action='store_true', help="read and print eeprom content")
+parser.add_argument("-sb", "--show-bandplan", action='store_true', help="read and show Band Plan")
+parser.add_argument("-ib", "--import-bandplan", help="import bandplan from file")
+parser.add_argument("-sf", "--show-fmtuner", action='store_true', help="read and show FM Tunner channels")
+parser.add_argument("-ssp", "--show-scan-presets", action='store_true', help="read and show Scan Presets")
 parser.add_argument("--debug", action='store_true', help="enable debug messages")
 args = parser.parse_args()
 
@@ -133,7 +146,7 @@ if debug:
 try:
     port = serial.Serial(device, baudrate=38400, timeout=DEFAULT_SERIAL_TIMEOUT)
 except serial.serialutil.SerialException:
-    print("[ERR] problem occured when trying to open '{}' device".format(args.device))
+    print("[ERR] problem occured when trying to open '{}' device".format(device))
     sys.exit(2)
 
 
@@ -237,9 +250,12 @@ def check_name(name):
     return name
 
 # validate frequency
-def check_frequency(frequency):
+def check_frequency(frequency,zero_allowed=False):
 
     number = conv2int ("Frequency", frequency)
+
+    if number == 0 and zero_allowed == True:
+        return 0
 
     if number < 1800000 or number > 130000000:
         print("[ERR] Frequency should be in the range from 1800000 to 130000000.")
@@ -452,6 +468,29 @@ def encode_channel_data():
     return data
 
 
+# get eeprom block (32 bytes)
+def get_eeprom_block(address):
+
+    port.write(CMD_READ_EEPROM)
+    port.write([address])
+    ack = port.read(1)
+#    if ack != CMD_READ_EEPROM:
+#        print("[ERR] no Ack.")
+#        sys.exit(2)
+
+    data = port.read(32)
+
+    checksum_r = port.read(1)
+
+    if checksum_r != calc_checksum(data):
+        print ("[ERR] received data checksum mismatch!")
+        sys.exit(2)
+    if debug:
+        print ("[DBG] received checksum OK")
+
+    return data
+
+
 # read channel bytes from radio
 def get_channel(channel_number):
 
@@ -459,31 +498,13 @@ def get_channel(channel_number):
 
     disable_radio()
 
-    port.write(CMD_READ_CHANNEL)
-    port.write([channel_number+1])
-    ack = port.read(1)
-#    if ack != CMD_READ_CHANNEL:
-#        print("[ERR] no Ack.")
-#        sys.exit(2)
-
-    data = port.read(32)
-    checksum_r = port.read(1)
+    data = get_eeprom_block(channel_number+1)
 
     enable_radio()
-
-    if debug:
-        print("[DBG] received data: {}".format(data));
 
     if data == b'':
         print("[ERR] received empy channel data!")
         sys.exit(2)
-
-    if checksum_r != calc_checksum(data):
-        print ("[ERR] received data checksum mismatch!")
-        sys.exit(2)
-    else:
-        if debug:
-            print ("[DBG] received checksum OK")
 
     # check if channel has only 0xff values (is empty)
     is_empty = True
@@ -512,7 +533,7 @@ def write_channel_bytes(channel_number,data_bytes):
 
     disable_radio()
 
-    port.write(CMD_WRITE_CHANNEL)
+    port.write(CMD_WRITE_EEPROM)
     port.write([channel_number+1])
     port.write(data_bytes)
     port.write(checksum)
@@ -520,7 +541,7 @@ def write_channel_bytes(channel_number,data_bytes):
 
     enable_radio()
 
-    if ack == CMD_WRITE_CHANNEL:
+    if ack == CMD_WRITE_EEPROM:
         if debug:
             print("[DBG] write OK")
     else:
@@ -811,6 +832,245 @@ if args.import_csv != None:
     exit_info = None
 
     write_channels_from_dict(ChannelsDict)
+
+    sys.exit(0)
+
+
+# read and print specified chunk of blocks 
+def print_eeprom_blocks(start_address, end_address):
+
+    disable_radio()
+
+    for address in range(start_address,end_address):
+        data = get_eeprom_block(address)
+        hex_string = "{:03d} ".format(address) + "0x" + struct.pack('B', address).hex() + " | "
+        hex_string += ' '.join(struct.pack('B', x).hex() for x in data)
+        print(hex_string)
+
+    enable_radio()
+
+
+bandplan_list = []
+bp = {}
+
+def read_eeprom_from_byte(start_byte, nbytes):
+
+    disable_radio()
+
+    data = bytearray()
+
+    sblock = start_byte//32 # from which block we should starat
+    sbyte = start_byte%32   # from which byte in block we should start
+    nblock = round(nbytes/32)+1   # how many block we need to read
+
+#    print("{} {} {}".format(sblock,sbyte,nblock))
+
+    r = 0 # readed bytes
+    for block in range (0, nblock):
+
+        block_data = get_eeprom_block(sblock+block)   # get block
+
+        to_read = (nbytes-r)
+
+        if to_read > (32 - sbyte):
+            chunk_size = (32 - sbyte)
+        else:
+            chunk_size = to_read
+
+        for block_byte in range(sbyte, sbyte+chunk_size):
+            data.append(block_data[block_byte])
+            r += 1
+
+        sbyte = 0 # if there will be next block to read, we will start from first byte
+
+    return(data)
+
+    enable_radio()
+
+def check_str_in_array(value,values_array,desc):
+    for s in values_array:
+        if s.lower() == value.lower():
+            return str
+    print("[ERR] wrong {} value '{}', allowed: {}".format(desc, value,', '.join(values_array)))
+    exit(2)
+
+
+# decode and prints bandplan
+def decode_band_plan(buf):
+
+    print("Band Plan")
+    print("{:15s} {:13s} {:09s} {:12s} {:14s} {:10s} {:9s}".format("Start Frequency",'End frequency','Max Power','Modulation','Bandwidth', 'Tx Allowed', 'Wrap'))
+
+    for i in range (0,20):
+        item = buf[(i*10):(i*10+10)]
+        bp['start_f']     = int.from_bytes(item[0:4], 'little')
+        bp['end_f']       = int.from_bytes(item[4:8], 'little')
+        bp['bandwidth']   = (item[9] &0b11100000) >> 5
+        bp['modulation']  = (item[9] &0b00011100) >> 2
+        bp['tx']          = (item[9] &0b00000010) >> 1
+        bp['wrap']        = (item[9] &0b00000001)
+        bp['power']       = item[8]
+
+        print ("{:15d} {:13d} {:9d} {:12s} {:14s} {:10s} {:9s}".format(
+            bp['start_f'],
+            bp['end_f'],
+            bp['power'],
+            bandplan_mod[bp['modulation']],
+            bandplan_bw[bp['bandwidth']],
+            NoYes[bp['tx']],
+            NoYes[bp['wrap']]
+        ))
+
+
+fm = {}
+
+def decode_fmtuner(buf1, buf2):
+
+    print ("FM Tuner settings")
+    print ("{:9s} {:7s}".format("Frequency",'Band'))
+
+    for i in range (0,20):
+        freq_item = buf1[(i*4):(i*4+4)]
+        band_item = buf2[i]
+        fm['freq']  = int.from_bytes(freq_item[0:4], 'little')
+        fm['band']  = band_item
+
+        print ("{:9d} {:7s}".format(
+            fm['freq'],
+            fm_band[fm['band']],
+        ))
+
+
+sp = {}
+
+def decode_scan_presets(buf):
+
+    print ("Scan Presets")
+    print ("{:15s} {:13s} {:7s} {:12s} {:5s} {:9s} {:9s} {:6s} {:10s}".format("Start Frequency",'End Frequency','Squelch','Squelch Tail','Step','Scan Hold','Scan Tail','Update','Modulation'))
+
+    for i in range (0,10):
+        sp_item = buf[(i*14):(i*14+14)]
+        sp['start_freq']  = int.from_bytes(sp_item[0:4], 'little')      # 4 bytes for frequency
+        sp['steps']  = int.from_bytes(sp_item[4:6], 'little')           # 2 bytes for scan steps
+        sp['squelch'] = sp_item[6] + 1; # +1 because squelch can be 1-9 (so 0-9 in byte)
+        sp['squelch_tail'] = sp_item[7]
+        sp['step']  = int.from_bytes(sp_item[8:10], 'little')
+        sp['scan_hold'] = sp_item[10]
+        sp['scan_tail'] = sp_item[11]
+        sp['update'] = sp_item[12]
+        sp['modulation'] = sp_mod[sp_item[13]]
+
+        sp['end_freq'] = sp['start_freq'] + (sp['steps'] * sp['step'])
+
+        print ("{:15d} {:13d} {:7d} {:12d} {:5} {:9d} {:9d} {:6d} {:10s}".format(
+            sp['start_freq'],
+            sp['end_freq'],
+            sp['squelch'],
+            sp['squelch_tail'],
+            sp['step'],
+            sp['scan_hold'],
+            sp['scan_tail'],
+            sp['update'],
+            sp['modulation'],
+        ))
+
+
+
+# print EEPROM content
+if args.show_eeprom != False:
+    print_eeprom_blocks(0,255)
+    exit (0)
+
+# print Band Plan
+if args.show_bandplan != False:
+    bandplan_bytes = read_eeprom_from_byte(208*32+2,10*20)
+    decode_band_plan(bandplan_bytes)
+    sys.exit(0)
+
+# print FM tuner channels
+if args.show_fmtuner != False:
+    # bank 200: - squelching byte 10, HT monitoring byte 11
+    fm_freq_bytes = read_eeprom_from_byte(204*32,4*20) # frequency each 4 bytes
+    fm_band_bytes = read_eeprom_from_byte(206*32+16,1*20) # band each 1 bytes so 20 bytes starting from bank 25, byte 16
+    if debug:
+        print("fm_freq_bytes:",' '.join(struct.pack('B', x).hex() for x in fm_freq_bytes))
+        print("fm_band_bytes:",' '.join(struct.pack('B', x).hex() for x in fm_band_bytes))
+    decode_fmtuner(fm_freq_bytes,fm_band_bytes)
+    sys.exit(0)
+
+# print Scan Presets
+if args.show_scan_presets != False:
+    scan_presets_bytes = read_eeprom_from_byte(216*32,14*10)
+    if debug:
+        print("scan_presets_bytes:",' '.join(struct.pack('B', x).hex() for x in scan_presets_bytes))
+    decode_scan_presets(scan_presets_bytes)
+    sys.exit(0)
+
+
+bandplan=[]
+
+# import Band Plan from file
+if args.import_bandplan != None:
+
+    try:
+        file = open(args.import_bandplan, "r")
+    except OSError:
+        print("[ERR] Could not open/read file '{}'".format(args.import_csv))
+        sys.exit(2)
+    
+    channels = {}
+
+    lcount = 0
+
+    for line in file:
+
+        line = line.rstrip('\n')
+
+        lcount += 1
+
+        # skip first line (header)
+        if lcount == 1:
+            continue
+        
+        # split line data
+        line_data = re.findall(r'\S+',line)
+
+        print (line_data)
+        # check array size
+        if len(line_data) != 7:
+            print("[ERR] line {} has incorrect number of fields".format(lcount))
+            sys.exit(2)
+
+        # set additional info on check fail
+        exit_info = "[ERR] import failed on line {}".format(lcount)
+
+        # check and import bandplan entry
+        bp['start_f']     = check_frequency(line_data[0],zero_allowed=True)
+        bp['end_f']       = check_frequency(line_data[1],zero_allowed=True)
+        #if power != 'Ignore'
+        bp['max_power']   = check_power(line_data[2])
+        bp['modulation']  = check_str_in_array(line_data[3],bandplan_mod,"Modulation")
+        bp['bandwidth']   = check_str_in_array(line_data[4],bandplan_bw,"Bandplan")
+        bp['tx']          = check_str_in_array(line_data[5],NoYes,"TX allowed")
+        bp['wrap']        = check_str_in_array(line_data[6],NoYes,"Wrap")
+
+        if debug:       
+            print ("[DBG] file read: {} {} {} {} {} {} {}".format(bp['start_f'],bp['end_f'],bp['max_power'],bp['modulation'],bp['bandwidth'],bp['tx']),bp['rap'])
+
+
+        # check start freq < end frequency
+        if bp['start_f'] >= bp['end_f']:
+            if  bp['start_f'] != 0: # zero is allowed == bandplan entry disabled
+                print("[ERR] Start frequency should be smaller that End frequency")
+                exit(2)
+
+    #TODO
+    print("[INF] Function is not implemented yet.")
+
+    file.close()
+    
+    # reset exit_info
+    exit_info = None
 
     sys.exit(0)
 
