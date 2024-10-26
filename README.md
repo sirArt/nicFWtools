@@ -18,6 +18,8 @@ Basic tool for nicFW settings manipulation:
  - adding/editing/removing single channels
  - importing/exporting channel list to CSV (with fixed width data field support)
  - remote radio keys control
+ - dumping EEPROM
+ - read Band Plan, Scan Presetes, FM tuner channels
 
 ## Usage:
 
